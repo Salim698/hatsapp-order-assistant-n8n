@@ -1,0 +1,526 @@
+{
+  "name": "WhatsApp Order & Support Assistant - Gemini x Green API",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp-webhook",
+        "options": {}
+      },
+      "id": "0052dde4-0e0d-454b-a6a1-1a554e4e95ad",
+      "name": "Webhook WhatsApp",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [-2144, -1808]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const message = $json.body?.message || '';\nconst phone = $json.body?.phone || '';\nconst name = $json.body?.name || 'Client';\n\nreturn {\n  json: {\n    message: message,\n    original_phone: phone,\n    original_name: name\n  }\n};"
+      },
+      "id": "1da0dcba-6980-4e9b-b259-c2e9b087239f",
+      "name": "Extract Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1952, -1808]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-goog-api-key",
+              "value": "={{ $env.GEMINI_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'Analyse ce message client et retourne UNIQUEMENT un JSON valide.\\n\\nMessage: ' + $json.message + '\\n\\nFormat:\\n{\"intent\": \"order | question | support\", \"product\": \"\", \"quantity\": 1, \"confidence\": 0.0}\\n\\nintent = order si le client veut acheter, question si le client demande un produit, un prix ou la disponibilité, support pour tout le reste.' }] }], generationConfig: { responseMimeType: 'application/json' } }) }}",
+        "options": {}
+      },
+      "id": "6b6cc606-dcd6-4917-8360-7817fdcda695",
+      "name": "Gemini Classifier",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [-1744, -1808]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const ctx = $('Extract Message').item.json;\nconst allowed = ['order', 'question', 'support'];\n\ntry {\n  const rawContent = $json.candidates?.[0]?.content?.parts?.[0]?.text || '';\n\n  const cleanString = rawContent\n    .replace(/```json/g, '')\n    .replace(/```/g, '')\n    .trim();\n\n  const parsed = JSON.parse(cleanString);\n\n  return {\n    json: {\n      message: ctx.message,\n      original_phone: ctx.original_phone,\n      original_name: ctx.original_name,\n      intent: allowed.includes(parsed.intent) ? parsed.intent : 'support',\n      product: parsed.product || '',\n      quantity: Number(parsed.quantity) || 1,\n      confidence: Number(parsed.confidence) || 0\n    }\n  };\n} catch (error) {\n  return {\n    json: {\n      message: ctx.message,\n      original_phone: ctx.original_phone,\n      original_name: ctx.original_name,\n      intent: 'support',\n      product: '',\n      quantity: 1,\n      confidence: 0,\n      error: error.message\n    }\n  };\n}"
+      },
+      "id": "2898a6de-3951-4c57-afb8-34bd81fda879",
+      "name": "Parse AI Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-1552, -1808]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "5f0d1c2a-1111-4a11-9a11-000000000001",
+                    "leftValue": "={{ $json.intent }}",
+                    "rightValue": "order",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "order"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "5f0d1c2a-2222-4a22-9a22-000000000002",
+                    "leftValue": "={{ $json.intent }}",
+                    "rightValue": "question",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "question"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "5f0d1c2a-3333-4a33-9a33-000000000003",
+                    "leftValue": "={{ $json.intent }}",
+                    "rightValue": "support",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "support"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "84aae701-c35a-43a4-91b4-a085bbc4dad2",
+      "name": "Router Intent",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [-1344, -1808]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID_HERE",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Orders",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "phone": "={{ $json.original_phone }}",
+            "name": "={{ $json.original_name }}",
+            "product": "={{ $json.product }}",
+            "quantity": "={{ $json.quantity }}",
+            "timestamp": "={{ new Date().toISOString() }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "1c2f093e-0b9b-4f06-ad28-4ef98ce0d3bf",
+      "name": "Save Order",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [-1056, -2016]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.greenapi.com/waInstance{{ $env.GREEN_API_INSTANCE }}/sendMessage/{{ $env.GREEN_API_TOKEN }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chatId",
+              "value": "={{ $('Parse AI Response').item.json.original_phone }}@c.us"
+            },
+            {
+              "name": "message",
+              "value": "=Votre commande pour {{ $('Parse AI Response').item.json.product }} (Qté : {{ $('Parse AI Response').item.json.quantity }}) est bien reçue ✅ Nous vous contactons sous peu pour confirmer."
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d9e8e0bb-d6b9-49cd-9d12-001942b9bb2d",
+      "name": "Confirm Client",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [-848, -2016]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.greenapi.com/waInstance{{ $env.GREEN_API_INSTANCE }}/sendMessage/{{ $env.GREEN_API_TOKEN }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chatId",
+              "value": "={{ $env.ADMIN_PHONE }}@c.us"
+            },
+            {
+              "name": "message",
+              "value": "=🚨 NOUVELLE COMMANDE\nProduit : {{ $('Parse AI Response').item.json.product }}\nQuantité : {{ $('Parse AI Response').item.json.quantity }}\nClient : {{ $('Parse AI Response').item.json.original_name }} ({{ $('Parse AI Response').item.json.original_phone }})"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d90dfed2-d4e3-40ac-8876-ca7e16cc72f3",
+      "name": "Notify Seller",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [-656, -2016]
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 24,
+        "unit": "hours"
+      },
+      "id": "5d298fb8-2831-4168-b4ad-58a0bcd433da",
+      "name": "Wait 24h",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [-448, -2016]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7a1b2c3d-4444-4b44-9b44-000000000004",
+              "leftValue": "={{ $('Parse AI Response').item.json.intent }}",
+              "rightValue": "order",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b97140bc-261f-4086-a919-fca00734633c",
+      "name": "Check Status",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [-256, -2016]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.greenapi.com/waInstance{{ $env.GREEN_API_INSTANCE }}/sendMessage/{{ $env.GREEN_API_TOKEN }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chatId",
+              "value": "={{ $('Parse AI Response').item.json.original_phone }}@c.us"
+            },
+            {
+              "name": "message",
+              "value": "=Bonjour {{ $('Parse AI Response').item.json.original_name }}, êtes-vous toujours intéressé par votre commande de {{ $('Parse AI Response').item.json.product }} ? 🛍️"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "908971cc-c01d-42f4-af16-24aed243adaf",
+      "name": "Auto Follow-up",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [-48, -2112]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const ctx = $('Parse AI Response').item.json;\n\nlet score = 0;\nif (ctx.confidence > 0.8) score += 3;\nif (ctx.quantity > 1) score += 2;\nif (ctx.intent === 'order') score += 5;\n\nreturn {\n  json: {\n    ...ctx,\n    lead_score: score,\n    status: 'warmed_up'\n  }\n};"
+      },
+      "id": "ec028d5f-e45f-4508-8a6e-380cca879297",
+      "name": "Scoring Client",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [160, -2112]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID_HERE",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Products",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "ProductName",
+              "lookupValue": "={{ $json.product }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a94e4622-14d5-4d21-8eca-8282822c2a77",
+      "name": "Check Product",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [-1056, -1808],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "9c8d7e6f-5555-4c55-9c55-000000000005",
+              "leftValue": "={{ Number($json.StockQuantity) || 0 }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "474d72f0-4c77-4cbb-a4b9-70098b78e89d",
+      "name": "IF Product Exists",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [-848, -1808]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.greenapi.com/waInstance{{ $env.GREEN_API_INSTANCE }}/sendMessage/{{ $env.GREEN_API_TOKEN }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chatId",
+              "value": "={{ $('Parse AI Response').item.json.original_phone }}@c.us"
+            },
+            {
+              "name": "message",
+              "value": "=✅ Oui ! {{ $json.ProductName }} est disponible en stock ({{ $json.StockQuantity }} unités). Souhaitez-vous valider votre commande dès maintenant ?"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "5c44e078-2888-4018-adae-23429447f420",
+      "name": "Reply Available",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [-656, -1920]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.greenapi.com/waInstance{{ $env.GREEN_API_INSTANCE }}/sendMessage/{{ $env.GREEN_API_TOKEN }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chatId",
+              "value": "={{ $('Parse AI Response').item.json.original_phone }}@c.us"
+            },
+            {
+              "name": "message",
+              "value": "=❌ Navré {{ $('Parse AI Response').item.json.original_name }}, nous sommes actuellement en rupture de stock pour {{ $('Parse AI Response').item.json.product }}. Nous avons d'autres alternatives qui pourraient vous intéresser. Consultez notre catalogue ! 📱"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b13abf28-dd95-4955-8fc1-14504f46946c",
+      "name": "Reply Not Available",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [-656, -1712]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.greenapi.com/waInstance{{ $env.GREEN_API_INSTANCE }}/sendMessage/{{ $env.GREEN_API_TOKEN }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chatId",
+              "value": "={{ $json.original_phone }}@c.us"
+            },
+            {
+              "name": "message",
+              "value": "=Merci pour votre message ! 🙏 Un agent du support va prendre le relais et vous répondre très vite (max 2h)."
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f25914b1-8c9b-4eeb-82a3-6481b05d702f",
+      "name": "Auto Reply Support",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [-1056, -1616]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.greenapi.com/waInstance{{ $env.GREEN_API_INSTANCE }}/sendMessage/{{ $env.GREEN_API_TOKEN }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chatId",
+              "value": "={{ $env.ADMIN_PHONE }}@c.us"
+            },
+            {
+              "name": "message",
+              "value": "=⚠️ SUPPORT DEMANDÉ\nClient : {{ $('Parse AI Response').item.json.original_name }}\nTéléphone : {{ $('Parse AI Response').item.json.original_phone }}\nMessage : {{ $('Parse AI Response').item.json.message }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "9b45075d-1e2f-41c1-809d-dc2d590b8bb5",
+      "name": "Notify Admin",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [-848, -1616]
+    }
+  ],
+  "connections": {
+    "Webhook WhatsApp": {
+      "main": [[{ "node": "Extract Message", "type": "main", "index": 0 }]]
+    },
+    "Extract Message": {
+      "main": [[{ "node": "Gemini Classifier", "type": "main", "index": 0 }]]
+    },
+    "Gemini Classifier": {
+      "main": [[{ "node": "Parse AI Response", "type": "main", "index": 0 }]]
+    },
+    "Parse AI Response": {
+      "main": [[{ "node": "Router Intent", "type": "main", "index": 0 }]]
+    },
+    "Router Intent": {
+      "main": [
+        [{ "node": "Save Order", "type": "main", "index": 0 }],
+        [{ "node": "Check Product", "type": "main", "index": 0 }],
+        [{ "node": "Auto Reply Support", "type": "main", "index": 0 }]
+      ]
+    },
+    "Save Order": {
+      "main": [[{ "node": "Confirm Client", "type": "main", "index": 0 }]]
+    },
+    "Confirm Client": {
+      "main": [[{ "node": "Notify Seller", "type": "main", "index": 0 }]]
+    },
+    "Notify Seller": {
+      "main": [[{ "node": "Wait 24h", "type": "main", "index": 0 }]]
+    },
+    "Wait 24h": {
+      "main": [[{ "node": "Check Status", "type": "main", "index": 0 }]]
+    },
+    "Check Status": {
+      "main": [[{ "node": "Auto Follow-up", "type": "main", "index": 0 }]]
+    },
+    "Auto Follow-up": {
+      "main": [[{ "node": "Scoring Client", "type": "main", "index": 0 }]]
+    },
+    "Check Product": {
+      "main": [[{ "node": "IF Product Exists", "type": "main", "index": 0 }]]
+    },
+    "IF Product Exists": {
+      "main": [
+        [{ "node": "Reply Available", "type": "main", "index": 0 }],
+        [{ "node": "Reply Not Available", "type": "main", "index": 0 }]
+      ]
+    },
+    "Auto Reply Support": {
+      "main": [[{ "node": "Notify Admin", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {},
+  "meta": {}
+}
